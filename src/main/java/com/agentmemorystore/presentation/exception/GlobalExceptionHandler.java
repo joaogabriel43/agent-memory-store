@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -82,6 +83,31 @@ public class GlobalExceptionHandler {
         );
         problem.setTitle("Invalid Parameter");
         problem.setType(URI.create("https://agent-memory-store/errors/invalid-parameter"));
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ProblemDetail handleMissingParameter(MissingServletRequestParameterException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                "Required parameter '" + ex.getParameterName() + "' is missing"
+        );
+        problem.setTitle("Missing Required Parameter");
+        problem.setType(URI.create("https://agent-memory-store/errors/missing-parameter"));
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    /**
+     * Handles explicit request-parameter validation failures
+     * (e.g. a non-positive {@code limit} or a blank {@code query}).
+     */
+    @ExceptionHandler(InvalidRequestException.class)
+    public ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Validation Error");
+        problem.setType(URI.create("https://agent-memory-store/errors/validation"));
         problem.setProperty("timestamp", Instant.now());
         return problem;
     }

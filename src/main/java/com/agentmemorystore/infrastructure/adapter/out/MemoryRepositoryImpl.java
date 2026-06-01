@@ -142,6 +142,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
                   AND created_at < NOW() - CAST(:ageDays || ' days' AS INTERVAL)
                 GROUP BY tenant_id
                 HAVING COUNT(*) >= :minCount
+                ORDER BY tenant_id
                 """)
                 .param("ageDays", ageDays)
                 .param("minCount", minCount)
@@ -161,8 +162,13 @@ public class MemoryRepositoryImpl implements MemoryRepository {
     }
 
     @Override
-    public void delete(UUID id, UUID tenantId) {
-        jdbcClient.sql("UPDATE memories SET deleted_at = NOW() WHERE id = :id AND tenant_id = :tenantId")
+    public int delete(UUID id, UUID tenantId) {
+        // `deleted_at IS NULL` guarantees a second delete affects 0 rows (idempotent 404),
+        // and the tenant filter ensures cross-tenant deletes are invisible.
+        return jdbcClient.sql("""
+                UPDATE memories SET deleted_at = NOW()
+                WHERE id = :id AND tenant_id = :tenantId AND deleted_at IS NULL
+                """)
                 .param("id", id)
                 .param("tenantId", tenantId.toString())
                 .update();

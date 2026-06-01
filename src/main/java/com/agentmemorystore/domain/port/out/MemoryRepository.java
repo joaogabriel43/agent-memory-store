@@ -28,7 +28,13 @@ public interface MemoryRepository {
 
     void markAsConsolidated(List<UUID> memoryIds);
 
-    void delete(UUID id, UUID tenantId);
+    /**
+     * Soft deletes a memory for the given tenant.
+     *
+     * @return the number of rows affected (0 if the memory does not exist,
+     *         belongs to another tenant, or was already deleted).
+     */
+    int delete(UUID id, UUID tenantId);
 
     com.agentmemorystore.domain.model.MemoryStats getStats(UUID tenantId);
 }
