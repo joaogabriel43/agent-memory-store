@@ -108,4 +108,4 @@ The project includes a GitHub Actions security pipeline (`.github/workflows/ci.y
 
 ## License
 
-This project is proprietary. All rights reserved.
+This project is licensed under the [MIT License](LICENSE).
