@@ -53,8 +53,11 @@ public class ConsolidationJobConfig {
 
     /**
      * Custom JobLauncher to execute jobs asynchronously so the REST API doesn't block.
+     * Marked {@code @Primary} so it wins over Spring Boot's auto-configured synchronous
+     * {@code jobLauncher}; without this the controller would silently bind to the blocking one.
      */
     @Bean
+    @org.springframework.context.annotation.Primary
     public TaskExecutorJobLauncher asyncJobLauncher(JobRepository jobRepository) throws Exception {
         TaskExecutorJobLauncher jobLauncher = new TaskExecutorJobLauncher();
         jobLauncher.setJobRepository(jobRepository);

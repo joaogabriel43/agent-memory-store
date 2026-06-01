@@ -62,6 +62,14 @@ resilience4j:
         limit-refresh-period: 1s
         timeout-duration: 5s
 
+server:
+  error:
+    # Security: never expose stack traces or internal messages in error responses
+    include-stacktrace: never
+    include-message: never
+    include-exception: false
+    include-binding-errors: never
+
 management:
   endpoints:
     web:

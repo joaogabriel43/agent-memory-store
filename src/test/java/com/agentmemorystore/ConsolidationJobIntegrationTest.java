@@ -15,9 +15,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobParametersBuilder;
+import org.springframework.batch.core.launch.support.TaskExecutorJobLauncher;
+import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.test.JobLauncherTestUtils;
 import org.springframework.batch.test.context.SpringBatchTest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
@@ -76,6 +79,9 @@ class ConsolidationJobIntegrationTest {
     @Autowired
     private Job consolidationJob;
 
+    @Autowired
+    private JobRepository jobRepository;
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
@@ -100,9 +106,16 @@ class ConsolidationJobIntegrationTest {
     }
 
     @BeforeEach
-    void resetWireMock() {
+    void resetWireMock() throws Exception {
         wireMockServer.resetAll();
         jobLauncherTestUtils.setJob(consolidationJob);
+        // The application's primary JobLauncher is asynchronous (for the REST API). Tests need a
+        // synchronous launcher so launchJob() returns a finished execution to assert against.
+        TaskExecutorJobLauncher syncLauncher = new TaskExecutorJobLauncher();
+        syncLauncher.setJobRepository(jobRepository);
+        syncLauncher.setTaskExecutor(new SyncTaskExecutor());
+        syncLauncher.afterPropertiesSet();
+        jobLauncherTestUtils.setJobLauncher(syncLauncher);
     }
 
     @Test
@@ -281,19 +294,33 @@ class ConsolidationJobIntegrationTest {
             embedding.append("0.01");
         }
         embedding.append("]");
+        // The "usage" block is required — Spring AI's parser calls usage.promptTokens()
+        // and throws NullPointerException if it is absent.
         return """
                 {
-                  "data": [{ "embedding": %s }]
+                  "object": "list",
+                  "data": [{ "object": "embedding", "index": 0, "embedding": %s }],
+                  "model": "text-embedding-ada-002",
+                  "usage": { "prompt_tokens": 8, "total_tokens": 8 }
                 }
                 """.formatted(embedding.toString());
     }
 
     private String generateChatResponseJson() {
+        // A complete OpenAI chat-completion payload. The "finish_reason" field is required —
+        // without it, Spring AI's parser throws NullPointerException calling finishReason().name().
         return """
                 {
+                  "id": "chatcmpl-test",
+                  "object": "chat.completion",
+                  "created": 1700000000,
+                  "model": "gpt-3.5-turbo",
                   "choices": [{
-                    "message": { "content": "This is a summarized semantic memory." }
-                  }]
+                    "index": 0,
+                    "message": { "role": "assistant", "content": "This is a summarized semantic memory." },
+                    "finish_reason": "stop"
+                  }],
+                  "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
                 }
                 """;
     }

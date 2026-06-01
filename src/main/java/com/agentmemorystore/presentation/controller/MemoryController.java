@@ -5,6 +5,7 @@ import com.agentmemorystore.application.dto.MemoryResponse;
 import com.agentmemorystore.application.dto.MemorySearchResponse;
 import com.agentmemorystore.application.dto.MemoryStatsResponse;
 import com.agentmemorystore.application.usecase.MemoryUseCase;
+import com.agentmemorystore.presentation.exception.InvalidRequestException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -66,6 +67,7 @@ public class MemoryController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Search results returned"),
+            @ApiResponse(responseCode = "400", description = "Invalid query or limit parameter"),
             @ApiResponse(responseCode = "503", description = "Embedding service unavailable")
     })
     public ResponseEntity<MemorySearchResponse> search(
@@ -75,6 +77,13 @@ public class MemoryController {
             @RequestParam String query,
             @Parameter(description = "Maximum number of results to return", example = "10")
             @RequestParam(defaultValue = "10") int limit) {
+
+        if (query.isBlank()) {
+            throw new InvalidRequestException("Search query must not be blank");
+        }
+        if (limit <= 0) {
+            throw new InvalidRequestException("limit must be a positive integer");
+        }
 
         MemorySearchResponse response = memoryUseCase.search(tenantId, query, limit);
         return ResponseEntity.ok(response);
@@ -105,7 +114,8 @@ public class MemoryController {
             description = "Soft deletes a specific memory. It will no longer appear in searches or be consolidated."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Memory deleted successfully")
+            @ApiResponse(responseCode = "204", description = "Memory deleted successfully"),
+            @ApiResponse(responseCode = "404", description = "Memory not found, already deleted, or belongs to another tenant")
     })
     public ResponseEntity<Void> deleteMemory(
             @Parameter(description = "Tenant identifier for data isolation", required = true)

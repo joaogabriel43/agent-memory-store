@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Set;
+
 /**
  * REST controller for managing the Memory Consolidation Spring Batch job.
  */
@@ -53,23 +55,35 @@ public class ConsolidationJobController {
     })
     public ResponseEntity<JobStatusResponse> startConsolidationJob() {
         try {
+            // Idempotency guard: if a consolidation run is already in flight, return it instead of
+            // launching a parallel run that could double-consolidate the same episodic memories.
+            Set<JobExecution> running = jobExplorer.findRunningJobExecutions("consolidationJob");
+            if (!running.isEmpty()) {
+                JobExecution existing = running.iterator().next();
+                log.info("Consolidation job already running (executionId={}), returning existing execution",
+                        existing.getId());
+                return ResponseEntity.status(HttpStatus.ACCEPTED).body(toResponse(existing));
+            }
+
             // Pitfall fix: Use a unique run.id to prevent JobInstanceAlreadyCompleteException
             JobExecution execution = jobLauncher.run(consolidationJob, new JobParametersBuilder()
                     .addLong("run.id", System.currentTimeMillis())
                     .toJobParameters());
 
-            JobStatusResponse response = new JobStatusResponse(
-                    execution.getId(),
-                    execution.getStatus().name(),
-                    "/api/v1/jobs/consolidation/" + execution.getId() + "/status"
-            );
-
-            return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(toResponse(execution));
 
         } catch (Exception e) {
             log.error("Failed to start consolidation job", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    private JobStatusResponse toResponse(JobExecution execution) {
+        return new JobStatusResponse(
+                execution.getId(),
+                execution.getStatus().name(),
+                "/api/v1/jobs/consolidation/" + execution.getId() + "/status"
+        );
     }
 
     @GetMapping("/{executionId}/status")
@@ -88,12 +102,6 @@ public class ConsolidationJobController {
             return ResponseEntity.notFound().build();
         }
 
-        JobStatusResponse response = new JobStatusResponse(
-                execution.getId(),
-                execution.getStatus().name(),
-                "/api/v1/jobs/consolidation/" + execution.getId() + "/status"
-        );
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(toResponse(execution));
     }
 }

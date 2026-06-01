@@ -24,6 +24,12 @@ spring:
     openai:
       api-key: sk-test-key-for-wiremock
       base-url: http://localhost:${wiremock.server.port:8089}
+    # Disable Spring AI's internal retry/backoff in tests so failing AI calls fail fast.
+    # Without this, a failed embedding/chat call would retry up to 10 times with exponential
+    # backoff (minutes), hanging tests. One attempt also makes the batch retry/skip scenario
+    # deterministic: exactly one HTTP call per Spring Batch attempt.
+    retry:
+      max-attempts: 1
 
 # Hybrid search & consolidation for tests
 memory:
@@ -35,13 +41,18 @@ memory:
     age-days: 0
     prompt: "Test prompt"
 
-# Resilience4j - more aggressive thresholds for testing
+# Resilience4j thresholds for testing.
+# The circuit breaker must NOT open during the deliberate failures used to exercise
+# the Spring Batch retry/skip logic — if it opened, retries would short-circuit before
+# reaching WireMock. A high minimum-number-of-calls keeps it CLOSED while the fallback
+# (which throws EmbeddingUnavailableException) still fires on every individual failure.
 resilience4j:
   circuitbreaker:
     instances:
       embeddingService:
-        sliding-window-size: 2
-        failure-rate-threshold: 50
+        sliding-window-size: 100
+        minimum-number-of-calls: 100
+        failure-rate-threshold: 100
         wait-duration-in-open-state: 1s
         permitted-number-of-calls-in-half-open-state: 1
   ratelimiter:

@@ -99,9 +99,14 @@ public class MemoryUseCase {
 
     /**
      * Soft deletes a memory by ID for the given tenant.
+     * Throws {@link MemoryNotFoundException} (mapped to 404) when nothing was deleted —
+     * the memory does not exist, belongs to another tenant, or was already deleted.
      */
     public void deleteMemory(UUID id, UUID tenantId) {
-        memoryRepository.delete(id, tenantId);
+        int affected = memoryRepository.delete(id, tenantId);
+        if (affected == 0) {
+            throw new MemoryNotFoundException(id);
+        }
     }
 
     /**
