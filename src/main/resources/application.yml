@@ -16,6 +16,12 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
+  batch:
+    jdbc:
+      initialize-schema: never
+    job:
+      enabled: false # Prevent automatic job execution on startup
+
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -26,14 +32,21 @@ spring:
       embedding:
         options:
           model: text-embedding-ada-002
+      chat:
+        options:
+          model: gpt-3.5-turbo
 
-# Hybrid search weights (ADR-002)
+# Hybrid search & consolidation (ADR-002)
 memory:
   search:
     semantic-weight: 0.7
     recency-weight: 0.3
+  consolidation:
+    min-episodic-count: 5
+    age-days: 7
+    prompt: "Summarize the following memories into a concise, long-term profile of the user:"
 
-# Resilience4j circuit breaker for embedding service
+# Resilience4j circuit breaker and rate limiter for AI services
 resilience4j:
   circuitbreaker:
     instances:
@@ -42,6 +55,12 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+  ratelimiter:
+    instances:
+      openai-embedding:
+        limit-for-period: 10
+        limit-refresh-period: 1s
+        timeout-duration: 5s
 
 management:
   endpoints:

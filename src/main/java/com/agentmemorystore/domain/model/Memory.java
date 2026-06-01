@@ -20,6 +20,7 @@ public class Memory {
     private List<UUID> sourceMemoryIds;
     private Instant lastAccessedAt;
     private Instant createdAt;
+    private boolean consolidated;
 
     /** Transient field populated only during search results. */
     private Double relevanceScore;
@@ -29,7 +30,7 @@ public class Memory {
 
     public Memory(UUID id, UUID tenantId, String content, float[] embedding,
                   MemoryType memoryType, List<UUID> sourceMemoryIds,
-                  Instant lastAccessedAt, Instant createdAt, Double relevanceScore) {
+                  Instant lastAccessedAt, Instant createdAt, boolean consolidated, Double relevanceScore) {
         this.id = id;
         this.tenantId = tenantId;
         this.content = content;
@@ -40,6 +41,7 @@ public class Memory {
                 : Collections.emptyList();
         this.lastAccessedAt = lastAccessedAt;
         this.createdAt = createdAt;
+        this.consolidated = consolidated;
         this.relevanceScore = relevanceScore;
     }
 
@@ -109,6 +111,14 @@ public class Memory {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public boolean isConsolidated() {
+        return consolidated;
+    }
+
+    public void setConsolidated(boolean consolidated) {
+        this.consolidated = consolidated;
     }
 
     public Double getRelevanceScore() {

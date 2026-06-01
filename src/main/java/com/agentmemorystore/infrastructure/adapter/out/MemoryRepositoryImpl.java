@@ -43,9 +43,9 @@ public class MemoryRepositoryImpl implements MemoryRepository {
 
         jdbcClient.sql("""
                 INSERT INTO memories (id, tenant_id, content, embedding, memory_type,
-                                      source_memory_ids, last_accessed_at, created_at)
+                                      source_memory_ids, last_accessed_at, created_at, consolidated)
                 VALUES (:id, :tenantId, :content, :embedding::vector, :memoryType,
-                        :sourceMemoryIds, :lastAccessedAt, :createdAt)
+                        :sourceMemoryIds, :lastAccessedAt, :createdAt, :consolidated)
                 """)
                 .param("id", id)
                 .param("tenantId", memory.getTenantId().toString())
@@ -55,6 +55,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
                 .param("sourceMemoryIds", sourceIds)
                 .param("lastAccessedAt", Timestamp.from(memory.getLastAccessedAt()))
                 .param("createdAt", Timestamp.from(memory.getCreatedAt()))
+                .param("consolidated", memory.isConsolidated())
                 .update();
 
         memory.setId(id);
@@ -65,7 +66,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
     public Optional<Memory> findById(UUID id) {
         return jdbcClient.sql("""
                 SELECT id, tenant_id, content, embedding, memory_type,
-                       source_memory_ids, last_accessed_at, created_at
+                       source_memory_ids, last_accessed_at, created_at, consolidated
                 FROM memories
                 WHERE id = :id
                 """)
@@ -81,7 +82,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
 
         return jdbcClient.sql("""
                 SELECT id, tenant_id, content, embedding, memory_type,
-                       source_memory_ids, last_accessed_at, created_at,
+                       source_memory_ids, last_accessed_at, created_at, consolidated,
                        (:semanticWeight * (1 - (embedding <=> :queryVector::vector)) +
                         :recencyWeight * EXP(-0.1 * EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400))
                        AS relevance_score
@@ -103,10 +104,11 @@ public class MemoryRepositoryImpl implements MemoryRepository {
     public List<Memory> findEpisodicForConsolidation(UUID tenantId, int minCount, int ageDays) {
         return jdbcClient.sql("""
                 SELECT id, tenant_id, content, embedding, memory_type,
-                       source_memory_ids, last_accessed_at, created_at
+                       source_memory_ids, last_accessed_at, created_at, consolidated
                 FROM memories
                 WHERE tenant_id = :tenantId
                   AND memory_type = 'EPISODIC'
+                  AND consolidated = FALSE
                   AND created_at < NOW() - CAST(:ageDays || ' days' AS INTERVAL)
                 ORDER BY created_at ASC
                 """)
@@ -124,6 +126,34 @@ public class MemoryRepositoryImpl implements MemoryRepository {
                 .update();
     }
 
+    @Override
+    public List<UUID> findTenantsReadyForConsolidation(int minCount, int ageDays) {
+        return jdbcClient.sql("""
+                SELECT tenant_id
+                FROM memories
+                WHERE memory_type = 'EPISODIC'
+                  AND consolidated = FALSE
+                  AND created_at < NOW() - CAST(:ageDays || ' days' AS INTERVAL)
+                GROUP BY tenant_id
+                HAVING COUNT(*) >= :minCount
+                """)
+                .param("ageDays", ageDays)
+                .param("minCount", minCount)
+                .query((rs, rowNum) -> UUID.fromString(rs.getString("tenant_id")))
+                .list();
+    }
+
+    @Override
+    public void markAsConsolidated(List<UUID> memoryIds) {
+        if (memoryIds == null || memoryIds.isEmpty()) {
+            return;
+        }
+        UUID[] idsArray = memoryIds.toArray(new UUID[0]);
+        jdbcClient.sql("UPDATE memories SET consolidated = TRUE WHERE id = ANY(:ids)")
+                .param("ids", idsArray)
+                .update();
+    }
+
     /**
      * Maps a JDBC ResultSet row to a domain Memory entity.
      */
@@ -138,6 +168,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
         memory.setSourceMemoryIds(sourceIds != null ? Arrays.asList(sourceIds) : Collections.emptyList());
         memory.setLastAccessedAt(rs.getTimestamp("last_accessed_at").toInstant());
         memory.setCreatedAt(rs.getTimestamp("created_at").toInstant());
+        memory.setConsolidated(rs.getBoolean("consolidated"));
         memory.setRelevanceScore(relevanceScore);
         return memory;
     }

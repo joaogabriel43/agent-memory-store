@@ -23,4 +23,8 @@ public interface MemoryRepository {
     List<Memory> findEpisodicForConsolidation(UUID tenantId, int minCount, int ageDays);
 
     void updateLastAccessedAt(UUID id, Instant accessedAt);
+
+    List<UUID> findTenantsReadyForConsolidation(int minCount, int ageDays);
+
+    void markAsConsolidated(List<UUID> memoryIds);
 }

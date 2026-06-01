@@ -10,4 +10,10 @@
         <Package name="com.agentmemorystore.application.dto"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
+    
+    <!-- Exclude EI_EXPOSE_REP2 for injected Spring beans in controllers -->
+    <Match>
+        <Package name="com.agentmemorystore.presentation.controller"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
 </FindBugsFilter>

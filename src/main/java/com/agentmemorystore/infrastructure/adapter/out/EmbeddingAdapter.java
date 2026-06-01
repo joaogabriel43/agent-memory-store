@@ -3,6 +3,7 @@ package com.agentmemorystore.infrastructure.adapter.out;
 import com.agentmemorystore.domain.exception.EmbeddingUnavailableException;
 import com.agentmemorystore.domain.port.out.EmbeddingPort;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -28,10 +29,17 @@ public class EmbeddingAdapter implements EmbeddingPort {
     }
 
     @Override
+    @RateLimiter(name = "openai-embedding", fallbackMethod = "rateLimitFallback")
     @CircuitBreaker(name = "embeddingService", fallbackMethod = "embeddingFallback")
     public float[] generateEmbedding(String content) {
         List<Double> embedding = embeddingModel.embed(content);
         return toFloatArray(embedding);
+    }
+
+    @SuppressWarnings("unused")
+    private float[] rateLimitFallback(String content, Throwable throwable) {
+        log.warn("Rate limit exceeded for embedding service.", throwable);
+        throw new EmbeddingUnavailableException("Rate limit exceeded for embedding service", throwable);
     }
 
     /**

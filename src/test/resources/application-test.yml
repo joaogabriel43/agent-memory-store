@@ -10,6 +10,12 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  batch:
+    jdbc:
+      initialize-schema: never
+    job:
+      enabled: false
+
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -19,11 +25,15 @@ spring:
       api-key: sk-test-key-for-wiremock
       base-url: http://localhost:${wiremock.server.port:8089}
 
-# Hybrid search weights for tests
+# Hybrid search & consolidation for tests
 memory:
   search:
     semantic-weight: 0.7
     recency-weight: 0.3
+  consolidation:
+    min-episodic-count: 2
+    age-days: 0
+    prompt: "Test prompt"
 
 # Resilience4j - more aggressive thresholds for testing
 resilience4j:
@@ -34,3 +44,9 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 1s
         permitted-number-of-calls-in-half-open-state: 1
+  ratelimiter:
+    instances:
+      openai-embedding:
+        limit-for-period: 100
+        limit-refresh-period: 1s
+        timeout-duration: 500ms
