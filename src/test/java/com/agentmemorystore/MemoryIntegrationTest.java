@@ -3,9 +3,12 @@ package com.agentmemorystore;
 import com.agentmemorystore.application.dto.MemoryCreateRequest;
 import com.agentmemorystore.application.dto.MemoryResponse;
 import com.agentmemorystore.application.dto.MemorySearchResponse;
+import com.agentmemorystore.application.dto.MemoryStatsResponse;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +20,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -63,6 +67,12 @@ class MemoryIntegrationTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
+    @Autowired
+    private JdbcClient jdbcClient;
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
@@ -87,8 +97,11 @@ class MemoryIntegrationTest {
     }
 
     @BeforeEach
-    void resetWireMock() {
+    void resetState() {
         wireMockServer.resetAll();
+        // Reset circuit breakers so the intentional-failure scenario cannot leak an OPEN state
+        // into subsequent ordered tests (test isolation).
+        circuitBreakerRegistry.getAllCircuitBreakers().forEach(CircuitBreaker::reset);
     }
 
     // ========== Scenario 1: WireMock 200 OK — Successful store ==========
@@ -228,7 +241,125 @@ class MemoryIntegrationTest {
         assertThat(notFoundResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    // ========== Soft delete semantics ==========
+
+    @Test
+    @Order(6)
+    @DisplayName("Delete is a soft delete (deleted_at filled), cross-tenant returns 404, second delete returns 404")
+    void shouldSoftDeleteAndEnforce404Semantics() {
+        stubOpenAiSuccess();
+
+        // Store a memory as Tenant A
+        MemoryCreateRequest request = new MemoryCreateRequest("Memory to be soft-deleted");
+        HttpEntity<MemoryCreateRequest> storeEntity = new HttpEntity<>(request, tenantHeaders(TENANT_A));
+        ResponseEntity<MemoryResponse> storeResponse = restTemplate.postForEntity(
+                "/api/v1/memories", storeEntity, MemoryResponse.class
+        );
+        UUID memoryId = storeResponse.getBody().id();
+
+        // Deleting as another tenant must not touch the row and must return 404
+        ResponseEntity<String> crossTenantDelete = restTemplate.exchange(
+                "/api/v1/memories/" + memoryId,
+                HttpMethod.DELETE, new HttpEntity<>(tenantHeaders(TENANT_B)), String.class
+        );
+        assertThat(crossTenantDelete.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Confirm the row is still present and NOT soft-deleted after the cross-tenant attempt
+        assertThat(deletedAtFor(memoryId)).isNull();
+
+        // First delete by the owner succeeds with 204
+        ResponseEntity<Void> firstDelete = restTemplate.exchange(
+                "/api/v1/memories/" + memoryId,
+                HttpMethod.DELETE, new HttpEntity<>(tenantHeaders(TENANT_A)), Void.class
+        );
+        assertThat(firstDelete.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Soft delete: the row still exists in the table, but deleted_at is now populated
+        assertThat(deletedAtFor(memoryId)).isNotNull();
+
+        // The memory is no longer retrievable
+        ResponseEntity<String> getAfterDelete = restTemplate.exchange(
+                "/api/v1/memories/" + memoryId,
+                HttpMethod.GET, new HttpEntity<>(tenantHeaders(TENANT_A)), String.class
+        );
+        assertThat(getAfterDelete.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Deleting a second time must return 404 (already deleted)
+        ResponseEntity<String> secondDelete = restTemplate.exchange(
+                "/api/v1/memories/" + memoryId,
+                HttpMethod.DELETE, new HttpEntity<>(tenantHeaders(TENANT_A)), String.class
+        );
+        assertThat(secondDelete.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    // ========== Search parameter validation ==========
+
+    @Test
+    @Order(7)
+    @DisplayName("Search rejects non-positive limit and blank query with 400")
+    void shouldReturn400ForInvalidSearchParameters() {
+        HttpEntity<Void> entity = new HttpEntity<>(tenantHeaders(TENANT_A));
+
+        // limit = 0 is not positive
+        assertThat(restTemplate.exchange(
+                "/api/v1/memories/search?query=anything&limit=0",
+                HttpMethod.GET, entity, String.class).getStatusCode()
+        ).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // limit negative
+        assertThat(restTemplate.exchange(
+                "/api/v1/memories/search?query=anything&limit=-5",
+                HttpMethod.GET, entity, String.class).getStatusCode()
+        ).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // blank query (empty value — avoids RestTemplate double-encoding of %20)
+        assertThat(restTemplate.exchange(
+                "/api/v1/memories/search?query=&limit=5",
+                HttpMethod.GET, entity, String.class).getStatusCode()
+        ).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // missing query entirely
+        assertThat(restTemplate.exchange(
+                "/api/v1/memories/search?limit=5",
+                HttpMethod.GET, entity, String.class).getStatusCode()
+        ).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    // ========== Stats for an empty tenant ==========
+
+    @Test
+    @Order(8)
+    @DisplayName("Stats returns zeros and null lastConsolidationAt for a tenant with no memories")
+    void shouldReturnZeroStatsForEmptyTenant() {
+        UUID emptyTenant = UUID.fromString("eeee0000-0000-0000-0000-0000000000ee");
+
+        ResponseEntity<MemoryStatsResponse> response = restTemplate.exchange(
+                "/api/v1/memories/stats",
+                HttpMethod.GET, new HttpEntity<>(tenantHeaders(emptyTenant)), MemoryStatsResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().totalMemories()).isZero();
+        assertThat(response.getBody().consolidatedEpisodic()).isZero();
+        assertThat(response.getBody().byType()).isEmpty();
+        // No consolidation job has ever run in this test → must be null, not an error
+        assertThat(response.getBody().lastConsolidationAt()).isNull();
+    }
+
     // ========== Helpers ==========
+
+    /**
+     * Reads the {@code deleted_at} column directly so soft-delete assertions verify the
+     * column was populated rather than merely that the row disappeared.
+     */
+    private java.sql.Timestamp deletedAtFor(UUID id) {
+        return jdbcClient.sql("SELECT deleted_at FROM memories WHERE id = :id")
+                .param("id", id)
+                .query((rs, rowNum) -> rs.getTimestamp("deleted_at"))
+                .optional()
+                .orElse(null);
+    }
 
     private HttpHeaders tenantHeaders(UUID tenantId) {
         HttpHeaders headers = new HttpHeaders();
@@ -267,7 +398,9 @@ class MemoryIntegrationTest {
         StringBuilder embedding = new StringBuilder("[");
         for (int i = 0; i < 1536; i++) {
             if (i > 0) embedding.append(",");
-            embedding.append(String.format("%.8f", (double) i / 1536.0));
+            // Locale.US forces a '.' decimal separator; the default locale (e.g. pt-BR) would
+            // emit ',' producing malformed JSON that Jackson rejects ("Leading zeroes not allowed").
+            embedding.append(String.format(java.util.Locale.US, "%.8f", (double) i / 1536.0));
         }
         embedding.append("]");
 
