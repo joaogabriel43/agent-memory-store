@@ -65,6 +65,12 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- Bean Validation (Hibernate Validator) — required for @Valid / @Validated to take effect -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
         <!-- JDBC (JdbcClient for raw pgvector queries) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
