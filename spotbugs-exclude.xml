@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+        Exclude EI_EXPOSE_REP2 on Java Records.
+        Record canonical constructors store parameters directly, but records
+        are designed to be transparent data carriers. This is a known SpotBugs
+        false positive for records.
+    -->
+    <Match>
+        <Package name="com.agentmemorystore.application.dto"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+</FindBugsFilter>

@@ -23,9 +23,35 @@ spring:
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:sk-placeholder}
+      embedding:
+        options:
+          model: text-embedding-ada-002
+
+# Hybrid search weights (ADR-002)
+memory:
+  search:
+    semantic-weight: 0.7
+    recency-weight: 0.3
+
+# Resilience4j circuit breaker for embedding service
+resilience4j:
+  circuitbreaker:
+    instances:
+      embeddingService:
+        sliding-window-size: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,metrics
+
+# Springdoc
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
