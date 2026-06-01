@@ -176,3 +176,65 @@ in the MVP.
 
 **Consequences**: `PROCEDURAL` exists in the database constraint but has no application code path.
 API validation should reject direct creation of `SEMANTIC` and `PROCEDURAL` types.
+
+---
+
+## ⚙️ Environment & Build Notes
+
+- **Tests require Docker** (Testcontainers spins up `pgvector/pgvector:pg16`) and WireMock. They will
+  not run without a Docker engine available.
+- **`spring.ai.retry.max-attempts: 1` is set in the test profile** (`application-test.yml`). Without
+  it, a failing embedding/chat call retries up to 10 times with exponential backoff (up to minutes),
+  which hangs the suite once the circuit breaker no longer opens on the first failures. One attempt
+  also makes the Spring Batch retry/skip scenario deterministic (exactly one HTTP call per attempt).
+- **CI currently runs security scans only** (OWASP, Trivy, GitLeaks, SpotBugs) — it does **not** run
+  `mvn test`. This is why the integration suite was red without anyone noticing during Sprints 0–3.
+  **Recommended: add `mvn verify` (or at least `mvn test`) to the pipeline.**
+
+---
+
+## 🐛 Known Pitfalls & How to Avoid Them
+
+### 2026-06-01 — Spring Batch 5 sequence is `BATCH_JOB_SEQ`, not `BATCH_JOB_INSTANCE_SEQ`
+**What happened**: The consolidation job failed at launch with `relation "batch_job_seq" does not exist`.
+**Why**: Flyway `V3` created `BATCH_JOB_INSTANCE_SEQ` (the Batch 4 name); Spring Batch 5's
+`JdbcJobInstanceDao` reads the job-instance id from `BATCH_JOB_SEQ`.
+**How to prevent**: When hand-writing the Batch schema, copy it from the Spring Batch 5
+`schema-postgresql.sql` for the exact Batch version on the classpath. The three sequences are
+`BATCH_STEP_EXECUTION_SEQ`, `BATCH_JOB_EXECUTION_SEQ`, `BATCH_JOB_SEQ`.
+
+### 2026-06-01 — Bean Validation silently ignored without `spring-boot-starter-validation`
+**What happened**: `@Valid @NotBlank` on request bodies did nothing; blank `content` returned 201.
+**Why**: `spring-boot-starter-web` does **not** bring Hibernate Validator since Boot 2.3.
+**How to prevent**: Add `spring-boot-starter-validation` whenever relying on `@Valid`/`@Validated`.
+
+### 2026-06-01 — Two `JobLauncher` beans → wrong one injected
+**What happened**: The intended async REST behavior was inactive; `JobLauncherTestUtils` got a null launcher.
+**Why**: Spring Boot auto-configures a synchronous `jobLauncher`; our custom async bean was a second
+candidate, and the controller bound to Boot's by parameter name.
+**How to prevent**: Mark the intended launcher `@Primary`; in tests, set a synchronous launcher on
+`JobLauncherTestUtils` explicitly.
+
+### 2026-06-01 — Soft delete must filter `deleted_at IS NULL` and report affected rows
+**What happened**: `DELETE` returned 204 for non-existent / cross-tenant / already-deleted memories.
+**How to prevent**: Mutating queries that back a 404 contract must return the affected-row count, and
+soft-delete updates must include `AND deleted_at IS NULL` so a second delete is a clean 404.
+
+### 2026-06-01 — Locale-sensitive `String.format` breaks JSON test fixtures
+**What happened**: Embedding stub JSON used `String.format("%.8f", ...)` → on pt-BR produced `,` →
+invalid JSON → Jackson "Leading zeroes not allowed" → 503 cascade.
+**How to prevent**: Always pass `Locale.US` (or `Locale.ROOT`) when formatting numbers into JSON/SQL.
+
+### 2026-06-01 — Spring AI M1 NPEs on incomplete OpenAI responses
+**What happened**: Chat stubs missing `finish_reason` and embedding stubs missing `usage` caused
+`NullPointerException` in the Spring AI parser, masked by the circuit-breaker fallback as
+"service unavailable", so the batch silently skipped every tenant.
+**How to prevent**: WireMock stubs for Spring AI must mirror the full OpenAI payload shape
+(`finish_reason`, `usage`, `object`, `index`, `model`).
+
+---
+
+## 📝 CLAUDE.md Changelog
+
+- **2026-06-01**: Added Environment & Build Notes, Known Pitfalls, and this changelog following the
+  final architectural review of Sprints 0–3 (PR #1). No ADRs changed.
