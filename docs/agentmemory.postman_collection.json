@@ -1,0 +1,225 @@
+{
+	"info": {
+		"_postman_id": "01d4a046-e525-46aa-bbf0-891461f85fb0",
+		"name": "Agent Memory Store",
+		"description": "Postman Collection for Agent Memory Store REST API.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Core Memory Operations",
+			"item": [
+				{
+					"name": "1. Store Memory",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Tenant-Id",
+								"value": "{{tenantId}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"content\": \"The user prefers dark mode for IDEs and uses Java for backend development.\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories"
+							]
+						}
+					}
+				},
+				{
+					"name": "2. Search Memories",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Tenant-Id",
+								"value": "{{tenantId}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories/search?query=What IDE theme does the user like?&limit=5",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories",
+								"search"
+							],
+							"query": [
+								{
+									"key": "query",
+									"value": "What IDE theme does the user like?"
+								},
+								{
+									"key": "limit",
+									"value": "5"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "3. Get Memory By ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Tenant-Id",
+								"value": "{{tenantId}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories/{{memoryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories",
+								"{{memoryId}}"
+							]
+						}
+					}
+				},
+				{
+					"name": "4. Delete Memory",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "X-Tenant-Id",
+								"value": "{{tenantId}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories/{{memoryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories",
+								"{{memoryId}}"
+							]
+						}
+					}
+				},
+				{
+					"name": "5. Get Tenant Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Tenant-Id",
+								"value": "{{tenantId}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories/stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories",
+								"stats"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Batch Jobs",
+			"item": [
+				{
+					"name": "Trigger Consolidation Job",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/jobs/consolidation",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"jobs",
+								"consolidation"
+							]
+						}
+					}
+				},
+				{
+					"name": "Check Job Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/jobs/consolidation/{{jobId}}/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"jobs",
+								"consolidation",
+								"{{jobId}}",
+								"status"
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "tenantId",
+			"value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+			"type": "string"
+		},
+		{
+			"key": "memoryId",
+			"value": "replace-with-uuid",
+			"type": "string"
+		},
+		{
+			"key": "jobId",
+			"value": "1",
+			"type": "string"
+		}
+	]
+}

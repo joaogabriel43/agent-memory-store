@@ -1,5 +1,6 @@
 package com.agentmemorystore.infrastructure.adapter.out;
 
+import com.agentmemorystore.domain.model.MemoryStats;
 import com.agentmemorystore.domain.model.Memory;
 import com.agentmemorystore.domain.model.MemoryType;
 import com.agentmemorystore.domain.port.out.MemoryRepository;
@@ -13,7 +14,9 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -63,14 +66,15 @@ public class MemoryRepositoryImpl implements MemoryRepository {
     }
 
     @Override
-    public Optional<Memory> findById(UUID id) {
+    public Optional<Memory> findById(UUID id, UUID tenantId) {
         return jdbcClient.sql("""
                 SELECT id, tenant_id, content, embedding, memory_type,
                        source_memory_ids, last_accessed_at, created_at, consolidated
                 FROM memories
-                WHERE id = :id
+                WHERE id = :id AND tenant_id = :tenantId AND deleted_at IS NULL
                 """)
                 .param("id", id)
+                .param("tenantId", tenantId.toString())
                 .query((rs, rowNum) -> mapRow(rs, null))
                 .optional();
     }
@@ -87,7 +91,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
                         :recencyWeight * EXP(-0.1 * EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400))
                        AS relevance_score
                 FROM memories
-                WHERE tenant_id = :tenantId AND embedding IS NOT NULL
+                WHERE tenant_id = :tenantId AND embedding IS NOT NULL AND deleted_at IS NULL
                 ORDER BY relevance_score DESC
                 LIMIT :limit
                 """)
@@ -109,6 +113,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
                 WHERE tenant_id = :tenantId
                   AND memory_type = 'EPISODIC'
                   AND consolidated = FALSE
+                  AND deleted_at IS NULL
                   AND created_at < NOW() - CAST(:ageDays || ' days' AS INTERVAL)
                 ORDER BY created_at ASC
                 """)
@@ -133,6 +138,7 @@ public class MemoryRepositoryImpl implements MemoryRepository {
                 FROM memories
                 WHERE memory_type = 'EPISODIC'
                   AND consolidated = FALSE
+                  AND deleted_at IS NULL
                   AND created_at < NOW() - CAST(:ageDays || ' days' AS INTERVAL)
                 GROUP BY tenant_id
                 HAVING COUNT(*) >= :minCount
@@ -152,6 +158,46 @@ public class MemoryRepositoryImpl implements MemoryRepository {
         jdbcClient.sql("UPDATE memories SET consolidated = TRUE WHERE id = ANY(:ids)")
                 .param("ids", idsArray)
                 .update();
+    }
+
+    @Override
+    public void delete(UUID id, UUID tenantId) {
+        jdbcClient.sql("UPDATE memories SET deleted_at = NOW() WHERE id = :id AND tenant_id = :tenantId")
+                .param("id", id)
+                .param("tenantId", tenantId.toString())
+                .update();
+    }
+
+    @Override
+    public MemoryStats getStats(UUID tenantId) {
+        // Query to get overall counts and counts by type
+        Map<String, Long> byType = new HashMap<>();
+        
+        jdbcClient.sql("""
+                SELECT memory_type, COUNT(*) as cnt
+                FROM memories
+                WHERE tenant_id = :tenantId AND deleted_at IS NULL
+                GROUP BY memory_type
+                """)
+                .param("tenantId", tenantId.toString())
+                .query((rs, rowNum) -> {
+                    byType.put(rs.getString("memory_type"), rs.getLong("cnt"));
+                    return null;
+                })
+                .list();
+
+        long totalMemories = byType.values().stream().mapToLong(Long::longValue).sum();
+
+        // Query to get count of consolidated episodic memories
+        long consolidatedEpisodic = jdbcClient.sql("""
+                SELECT COUNT(*) as cnt
+                FROM memories
+                WHERE tenant_id = :tenantId AND memory_type = 'EPISODIC' AND consolidated = TRUE AND deleted_at IS NULL
+                """)
+                .param("tenantId", tenantId.toString())
+                .query(rs -> rs.next() ? rs.getLong("cnt") : 0L);
+
+        return new MemoryStats(totalMemories, consolidatedEpisodic, byType);
     }
 
     /**

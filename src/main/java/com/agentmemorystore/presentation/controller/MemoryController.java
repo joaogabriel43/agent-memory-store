@@ -3,6 +3,7 @@ package com.agentmemorystore.presentation.controller;
 import com.agentmemorystore.application.dto.MemoryCreateRequest;
 import com.agentmemorystore.application.dto.MemoryResponse;
 import com.agentmemorystore.application.dto.MemorySearchResponse;
+import com.agentmemorystore.application.dto.MemoryStatsResponse;
 import com.agentmemorystore.application.usecase.MemoryUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -95,5 +97,39 @@ public class MemoryController {
 
         MemoryResponse response = memoryUseCase.findById(id, tenantId);
         return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(
+            summary = "Delete a memory by ID",
+            description = "Soft deletes a specific memory. It will no longer appear in searches or be consolidated."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Memory deleted successfully")
+    })
+    public ResponseEntity<Void> deleteMemory(
+            @Parameter(description = "Tenant identifier for data isolation", required = true)
+            @RequestHeader("X-Tenant-Id") UUID tenantId,
+            @Parameter(description = "Memory UUID", required = true)
+            @PathVariable UUID id) {
+
+        memoryUseCase.deleteMemory(id, tenantId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/stats")
+    @Operation(
+            summary = "Get memory statistics",
+            description = "Retrieves business metrics about the tenant's memories and the status of the global consolidation job."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Statistics retrieved successfully")
+    })
+    public ResponseEntity<MemoryStatsResponse> getStats(
+            @Parameter(description = "Tenant identifier for data isolation", required = true)
+            @RequestHeader("X-Tenant-Id") UUID tenantId) {
+
+        MemoryStatsResponse stats = memoryUseCase.getMemoryStats(tenantId);
+        return ResponseEntity.ok(stats);
     }
 }

@@ -11,9 +11,19 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
     
-    <!-- Exclude EI_EXPOSE_REP2 for injected Spring beans in controllers -->
+    <!-- Exclude EI_EXPOSE_REP2 for injected Spring beans in controllers, usecases, and batch configs -->
     <Match>
-        <Package name="com.agentmemorystore.presentation.controller"/>
+        <Or>
+            <Package name="com.agentmemorystore.presentation.controller"/>
+            <Package name="com.agentmemorystore.application.usecase"/>
+            <Package name="com.agentmemorystore.application.batch"/>
+        </Or>
         <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Exclude EI_EXPOSE_REP for MemoryStats record -->
+    <Match>
+        <Class name="com.agentmemorystore.domain.model.MemoryStats"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 </FindBugsFilter>

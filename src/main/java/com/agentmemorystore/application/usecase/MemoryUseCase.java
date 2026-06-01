@@ -8,6 +8,11 @@ import com.agentmemorystore.domain.model.Memory;
 import com.agentmemorystore.domain.model.MemoryType;
 import com.agentmemorystore.domain.port.out.EmbeddingPort;
 import com.agentmemorystore.domain.port.out.MemoryRepository;
+import com.agentmemorystore.application.dto.MemoryStatsResponse;
+import com.agentmemorystore.domain.model.MemoryStats;
+import org.springframework.batch.core.JobExecution;
+import org.springframework.batch.core.JobInstance;
+import org.springframework.batch.core.explore.JobExplorer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -25,15 +30,18 @@ public class MemoryUseCase {
 
     private final MemoryRepository memoryRepository;
     private final EmbeddingPort embeddingPort;
+    private final JobExplorer jobExplorer;
     private final double semanticWeight;
     private final double recencyWeight;
 
     public MemoryUseCase(MemoryRepository memoryRepository,
                          EmbeddingPort embeddingPort,
+                         JobExplorer jobExplorer,
                          @Value("${memory.search.semantic-weight:0.7}") double semanticWeight,
                          @Value("${memory.search.recency-weight:0.3}") double recencyWeight) {
         this.memoryRepository = memoryRepository;
         this.embeddingPort = embeddingPort;
+        this.jobExplorer = jobExplorer;
         this.semanticWeight = semanticWeight;
         this.recencyWeight = recencyWeight;
     }
@@ -79,8 +87,7 @@ public class MemoryUseCase {
      * Finds a memory by ID and updates its last accessed timestamp (ADR-003: memory decay).
      */
     public MemoryResponse findById(UUID id, UUID tenantId) {
-        Memory memory = memoryRepository.findById(id)
-                .filter(m -> m.getTenantId().equals(tenantId))
+        Memory memory = memoryRepository.findById(id, tenantId)
                 .orElseThrow(() -> new MemoryNotFoundException(id));
 
         Instant now = Instant.now();
@@ -88,6 +95,59 @@ public class MemoryUseCase {
         memory.setLastAccessedAt(now);
 
         return toResponse(memory);
+    }
+
+    /**
+     * Soft deletes a memory by ID for the given tenant.
+     */
+    public void deleteMemory(UUID id, UUID tenantId) {
+        memoryRepository.delete(id, tenantId);
+    }
+
+    /**
+     * Retrieves memory statistics for the given tenant, including global job status.
+     */
+    public MemoryStatsResponse getMemoryStats(UUID tenantId) {
+        MemoryStats stats = memoryRepository.getStats(tenantId);
+
+        Instant lastConsolidationAt = null;
+        String lastConsolidationStatus = "NEVER_RUN";
+        long memoriesConsolidatedInLastRun = 0L;
+
+        try {
+            List<JobInstance> jobInstances = jobExplorer.findJobInstancesByJobName("consolidationJob", 0, 1);
+            if (!jobInstances.isEmpty()) {
+                JobExecution lastExecution = jobExplorer.getLastJobExecution(jobInstances.get(0));
+                if (lastExecution != null) {
+                    java.time.LocalDateTime endTime = lastExecution.getEndTime();
+                    java.time.LocalDateTime startTime = lastExecution.getStartTime();
+                    
+                    if (endTime != null) {
+                        lastConsolidationAt = endTime.toInstant(java.time.ZoneOffset.UTC);
+                    } else if (startTime != null) {
+                        lastConsolidationAt = startTime.toInstant(java.time.ZoneOffset.UTC);
+                    }
+                    lastConsolidationStatus = lastExecution.getStatus().name();
+                    
+                    // We can aggregate the write count from step executions as an indicator
+                    memoriesConsolidatedInLastRun = lastExecution.getStepExecutions().stream()
+                            .mapToLong(org.springframework.batch.core.StepExecution::getWriteCount)
+                            .sum();
+                }
+            }
+        } catch (Exception e) {
+            // Log but don't fail the stats endpoint if Spring Batch explorer throws
+            lastConsolidationStatus = "UNKNOWN";
+        }
+
+        return new MemoryStatsResponse(
+                stats.totalMemories(),
+                stats.consolidatedEpisodic(),
+                stats.byType(),
+                lastConsolidationAt,
+                lastConsolidationStatus,
+                memoriesConsolidatedInLastRun
+        );
     }
 
     private MemoryResponse toResponse(Memory memory) {

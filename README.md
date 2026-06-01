@@ -1,9 +1,30 @@
 # Agent Memory Store
 
+[![CI/CD Security Pipeline](https://github.com/joaogabriel43/agent-memory-store/actions/workflows/ci.yml/badge.svg)](https://github.com/joaogabriel43/agent-memory-store/actions/workflows/ci.yml)
+
 REST API providing **long-term memory for AI agents** using semantic search and pgvector.
 
 Built with a Clean Architecture approach, this service allows AI agents to store, retrieve, and
 consolidate memories using vector embeddings for semantic similarity search.
+
+---
+
+## Architecture Flow
+
+```mermaid
+sequenceDiagram
+    participant Agent as AI Agent
+    participant API as Agent Memory Store
+    participant OAI as OpenAI API
+    participant PG as PostgreSQL (pgvector)
+    
+    Agent->>API: POST /memories
+    API->>OAI: Generate Embedding
+    OAI-->>API: Vector [0.1, 0.4, ...]
+    API->>PG: INSERT (content, vector)
+    PG-->>API: Success
+    API-->>Agent: Memory ID
+```
 
 ---
 
@@ -14,77 +35,63 @@ consolidate memories using vector embeddings for semantic similarity search.
 | Language      | Java 21                               |
 | Framework     | Spring Boot 3.2                       |
 | Database      | PostgreSQL 16 + pgvector              |
-| Migrations    | Flyway                                |
-| Build         | Maven                                 |
+| Batch         | Spring Batch 5                        |
+| Resilience    | Resilience4j                          |
 | AI Embeddings | Spring AI (OpenAI)                    |
-| SQL Tracing   | p6spy                                 |
-| Testing       | JUnit 5, Testcontainers, jqwik        |
 | CI/CD         | GitHub Actions                        |
 
 ---
 
-## Prerequisites
+## How agents use this API
 
-- **Java 21** (JDK)
-- **Maven 3.9+**
-- **Docker** and **Docker Compose**
-
----
-
-## Getting Started
-
-### 1. Start the database
+### 1. Store a Memory
+Agents send observations or facts to be stored.
 
 ```bash
-docker-compose up -d
+curl -X POST http://localhost:8080/api/v1/memories \
+  -H "X-Tenant-Id: a1b2c3d4-e5f6-7890-abcd-ef1234567890" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "The user prefers dark mode for IDEs."}'
 ```
 
-This starts PostgreSQL 16 with the pgvector extension on port `5432`.
-
-### 2. Build the project
+### 2. Search Memories
+Agents query the memory store using natural language to gain context.
 
 ```bash
-mvn clean install
+curl -X GET "http://localhost:8080/api/v1/memories/search?query=IDE preferences&limit=5" \
+  -H "X-Tenant-Id: a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 ```
 
-### 3. Run the application
+### 3. Check Memory Stats
+Agents or administrators can check the health and counts of stored memories.
 
 ```bash
-mvn spring-boot:run
-```
-
-The application will:
-- Connect to PostgreSQL via p6spy (SQL tracing enabled)
-- Run Flyway migrations automatically
-- Expose Actuator endpoints at `/actuator/health`
-
-### 4. Verify
-
-```bash
-curl http://localhost:8080/actuator/health
+curl -X GET http://localhost:8080/api/v1/memories/stats \
+  -H "X-Tenant-Id: a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 ```
 
 ---
 
-## Project Structure
+## Getting Started Locally
 
-```
-src/main/java/com/agentmemorystore/
-├── domain/           # Core entities, value objects, domain contracts
-├── application/      # Use cases, services, port interfaces
-├── infrastructure/   # Database adapters, external APIs, configs
-└── presentation/     # REST controllers, DTOs
-```
-
-See [CLAUDE.md](CLAUDE.md) for architectural decisions and ADRs.
+1. Start the database: `docker-compose up -d`
+2. Build the project: `mvn clean install`
+3. Run: `mvn spring-boot:run`
 
 ---
 
-## Environment Variables
+## Deployment (Railway)
 
-| Variable        | Description              | Default          |
-|----------------|--------------------------|------------------|
-| `OPENAI_API_KEY`| OpenAI API key for embeddings | `sk-placeholder` |
+To deploy this API on Railway, simply link your GitHub repository. Railway will detect the Maven build automatically (no `Procfile` required).
+
+**Environment Variables Required:**
+- `OPENAI_API_KEY`: Your OpenAI API Key.
+- `SPRING_DATASOURCE_URL`: The JDBC URL pointing to your PostgreSQL instance. 
+  *(Example: `jdbc:p6spy:postgresql://${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}`)*
+- `SPRING_DATASOURCE_USERNAME`: Database username.
+- `SPRING_DATASOURCE_PASSWORD`: Database password.
+
+> **Note:** Ensure you provision a PostgreSQL instance on Railway and run `CREATE EXTENSION IF NOT EXISTS vector;` if not already installed.
 
 ---
 

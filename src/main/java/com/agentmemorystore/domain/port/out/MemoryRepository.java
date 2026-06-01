@@ -15,7 +15,7 @@ public interface MemoryRepository {
 
     Memory save(Memory memory);
 
-    Optional<Memory> findById(UUID id);
+    Optional<Memory> findById(UUID id, UUID tenantId);
 
     List<Memory> searchByEmbedding(UUID tenantId, float[] embedding, int limit,
                                    double semanticWeight, double recencyWeight);
@@ -27,4 +27,8 @@ public interface MemoryRepository {
     List<UUID> findTenantsReadyForConsolidation(int minCount, int ageDays);
 
     void markAsConsolidated(List<UUID> memoryIds);
+
+    void delete(UUID id, UUID tenantId);
+
+    com.agentmemorystore.domain.model.MemoryStats getStats(UUID tenantId);
 }
